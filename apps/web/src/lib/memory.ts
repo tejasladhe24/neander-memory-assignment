@@ -73,6 +73,27 @@ export async function extractMemories(params: {
   )
 }
 
+export async function extractMemoriesFromTranscript(
+  transcript: string
+): Promise<ExtractedMemory[]> {
+  if (!transcript.trim()) {
+    return []
+  }
+
+  const result = await generateText({
+    model: env.MEMORY_EXTRACT_MODEL,
+    system: env.MEMORY_EXTRACT_SYSTEM_PROMPT,
+    prompt: `Conversation excerpt:\n${transcript}`,
+    output: Output.object({ schema: extractedMemoriesSchema }),
+  })
+
+  const secretPattern = getMemorySecretFilterPattern()
+
+  return result.output.memories.filter(
+    (memory) => memory.content.trim() && !secretPattern.test(memory.content)
+  )
+}
+
 export async function createMemoryRecord(input: CreateMemoryInput) {
   const { userId, content, type, sourceChatId } = input
 

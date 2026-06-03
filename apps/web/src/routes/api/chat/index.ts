@@ -28,6 +28,11 @@ import {
   getMessageText,
   getRetrievalMinSimilarity,
 } from "@/lib/memory"
+import {
+  buildMessagesForModel,
+  getChatContextState,
+  maybeCompactChatContext,
+} from "@/lib/chat-context"
 import { queueMemoriesFromTurn } from "@/lib/inngest"
 
 type RequestBody = {
@@ -56,17 +61,19 @@ export const Route = createFileRoute("/api/chat/")({
             limit: env.MEMORY_PROFILE_LIMIT,
           })
 
-          const chat = await db.query.chat.findFirst({
+          let chat = await db.query.chat.findFirst({
             where: and(eq(schema.chat.id, id), eq(schema.chat.userId, userId)),
           })
 
           if (!chat) {
             const title = await generateChatTitle(userText)
 
-            await db
+            const [created] = await db
               .insert(schema.chat)
               .values({ id, title, userId })
               .returning()
+
+            chat = created
           }
 
           const [capabilities, dbMessages] = await Promise.all([
@@ -89,11 +96,28 @@ export const Route = createFileRoute("/api/chat/")({
             ]).then(([rows]) => rows),
           ])
 
+          let contextState = getChatContextState(chat)
+
+          contextState = await maybeCompactChatContext({
+            chatId: id,
+            userId,
+            pgMessages: dbMessages,
+            currentMessage: message,
+            contextState,
+          })
+
           const uiMessages = convertToUIMessages(dbMessages)
-          const retrievalEmbedText = buildRetrievalEmbedText(userText, [
-            ...uiMessages,
-            message,
-          ])
+          const messagesForModel = buildMessagesForModel({
+            dbMessages: uiMessages,
+            currentMessage: message,
+            contextSummary: contextState.contextSummary,
+            compactedMessageCount: contextState.compactedMessageCount,
+          })
+
+          const retrievalEmbedText = buildRetrievalEmbedText(
+            userText,
+            messagesForModel
+          )
           const minSimilarity = getRetrievalMinSimilarity(userText)
 
           const queryEmbeddingPromise =
@@ -113,7 +137,7 @@ export const Route = createFileRoute("/api/chat/")({
 
           const [modelMessages, profileMemories, queryMemories] =
             await Promise.all([
-              convertToModelMessages([...uiMessages, message]),
+              convertToModelMessages(messagesForModel),
               profileMemoriesPromise,
               queryEmbedding
                 ? searchMemoriesByEmbedding(db, {

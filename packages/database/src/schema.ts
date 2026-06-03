@@ -1,6 +1,7 @@
 import {
   boolean,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -95,6 +96,10 @@ export const $chat = pgTable(
     userId: text("userId")
       .notNull()
       .references(() => $user.id, { onDelete: "cascade" }),
+    contextSummary: text("contextSummary"),
+    compactedMessageCount: integer("compactedMessageCount")
+      .notNull()
+      .default(0),
     ...timestamps,
   },
   (table) => [index("chat_user_id_idx").on(table.userId)]

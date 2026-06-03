@@ -1,45 +1,38 @@
 # Neander Memory Assignment
 
-A conversational agent with **persistent, cross-session memory** — built for the [Neander take-home assignment](./assignment.md). The agent should remember user preferences, decisions, and context across chats and server restarts, without drowning the model in noise.
+A conversational agent with **persistent, cross-session memory** — built for the [Neander take-home assignment](./assignment.md). The agent remembers user preferences, decisions, and facts across chats and restarts, with vector retrieval, async capture, and long-chat context compaction.
 
-## Current Status
-
-| Area | Status |
-|------|--------|
-| Chat UI + streaming LLM | Working |
-| Auth (email/password) | Working |
-| Chat/message persistence | Working (Postgres + Electric sync) |
-| Memory capture / retrieval | **Stub only** — see [`PLAN.md`](./PLAN.md) |
-| Memory tests | Not started |
-| Cross-session memory demo | Not started |
-| Latency benchmark (1k memories) | Not started |
-
-See **[PLAN.md](./PLAN.md)** for the step-by-step plan to finish the assignment on top of this codebase.
+See **[FEATURES.md](./FEATURES.md)** for a full feature list.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  apps/web (TanStack Start + React)                          │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────┐ │
-│  │ Chat UI     │→ │ /api/chat    │→ │ Vercel AI Gateway   │ │
-│  │ (useChat)   │  │ streamText   │  │ (gpt-4o-mini, etc.) │ │
-│  └─────────────┘  └──────┬───────┘  └─────────────────────┘ │
-│                          │                                   │
-│                   memory-tool (stub)                         │
-└──────────────────────────┼──────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  apps/web (TanStack Start + React)                               │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────────────┐ │
+│  │ Chat UI     │→ │ /api/chat    │→ │ Vercel AI Gateway        │ │
+│  │ (useChat +  │  │ streamText   │  │ (multi-model via env)    │ │
+│  │  Electric)  │  │ + memory inj │  └──────────────────────────┘ │
+│  └─────────────┘  └──────┬───────┘                               │
+│                          │                                       │
+│              memory-tool · context compaction                    │
+│                          │                                       │
+│              ┌───────────▼───────────┐                           │
+│              │ /api/inngest          │  async memory extract/persist│
+│              └───────────────────────┘                           │
+└──────────────────────────┼───────────────────────────────────────┘
                            │
-┌──────────────────────────▼──────────────────────────────────┐
-│  packages/database (Drizzle ORM)                            │
-│  user · session · chat · message  (+ memory table — planned)  │
-└──────────────────────────┬──────────────────────────────────┘
+┌──────────────────────────▼───────────────────────────────────────┐
+│  packages/database (Drizzle ORM)                                 │
+│  user · session · chat · message · memory (pgvector + HNSW)        │
+└──────────────────────────┬───────────────────────────────────────┘
                            │
-┌──────────────────────────▼──────────────────────────────────┐
-│  Docker: Postgres (pgvector) · Redis · ElectricSQL          │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────▼───────────────────────────────────────┐
+│  Docker: Postgres (pgvector) · Redis · ElectricSQL               │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-**Key design intent:** Memory is **user-scoped** (not chat-scoped). A new chat for the same user should still recall what was learned in earlier sessions. Chat history stays per-conversation; long-term memory is a separate layer.
+**Design:** Long-term memory is **user-scoped** (not chat-scoped). Chat history stays per conversation; memories and compaction summaries are separate layers.
 
 ## Tech Stack
 
@@ -48,52 +41,80 @@ See **[PLAN.md](./PLAN.md)** for the step-by-step plan to finish the assignment 
 - **AI:** Vercel AI SDK (`ai`, `@ai-sdk/react`) via AI Gateway
 - **Database:** PostgreSQL 16 + pgvector (Docker), Drizzle ORM
 - **Realtime sync:** ElectricSQL (chat/message shapes to the client)
-- **Auth:** better-auth (JWT, email/password, Resend for email)
+- **Background jobs:** Inngest (memory extraction after each turn)
+- **Auth:** better-auth (email/password, Resend for transactional email)
 
 ## Prerequisites
 
 - Node.js ≥ 20
-- pnpm ≥ 10
+- pnpm ≥ 10 (`corepack enable` if needed)
 - Docker + Docker Compose
 - [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) API key
-- [Resend](https://resend.com) API key (for auth emails in production; optional locally)
+- [Resend](https://resend.com) API key (signup / password-reset emails)
+- [Inngest CLI](https://www.inngest.com/docs/local-development) (optional but **required** for async memory writes in local dev)
 
-## Local Setup
+## Development Setup
 
-### 1. Install dependencies
+### 1. Clone and install
 
 ```bash
+git clone <repo-url>
+cd neander-memory-assignment
 pnpm install
 ```
 
-### 2. Configure environment
+### 2. Environment files
 
-**Root `.env`** — used by Docker Compose:
+Create two env files. Passwords and secrets must match between Docker and the app.
+
+**Root `.env`** (Docker Compose):
 
 ```env
 POSTGRES_USER=admin
 POSTGRES_DB=postgres
 POSTGRES_PASSWORD=<strong-password>
+
 REDIS_PASSWORD=<strong-password>
+
 ELECTRIC_SECRET=<random-secret>
 AUTH_MODE=insecure
 ```
 
-**`apps/web/.env`** — used by the web app:
+**`apps/web/.env`** (web app — copy from the example below and fill in secrets):
 
 ```env
+# App URLs
 SELF_URL=http://localhost:3000
 VITE_SELF_URL=http://localhost:3000
-AUTH_SECRET=<random-secret>
+
+# Auth
+AUTH_SECRET=<random-32+-char-secret>
 AUTH_DOMAIN=localhost
-POSTGRES_URL=postgresql://admin:<password>@localhost:5432/postgres
+
+# Database (must match Docker Postgres credentials)
+POSTGRES_URL=postgresql://admin:<POSTGRES_PASSWORD>@localhost:5432/postgres
+
+# Electric (must match ELECTRIC_SECRET in root .env)
 ELECTRIC_URL=http://localhost:3100
-ELECTRIC_SECRET=<same-as-root>
+ELECTRIC_SECRET=<same-as-root-ELECTRIC_SECRET>
+
+# AI
 AI_GATEWAY_API_KEY=<vercel-ai-gateway-key>
-RESEND_API_KEY=<resend-key>
+
+# Email (Resend)
+RESEND_API_KEY=<resend-api-key>
 EMAIL_SENDER_NAME=Neander
 EMAIL_SENDER_ADDRESS=onboarding@resend.dev
+
+# Inngest (local dev)
+INNGEST_DEV=1
+INNGEST_APP_ID=chatbot
+
+# Client default model
+VITE_DEFAULT_CHAT_MODEL=gpt-4o-mini
 ```
+
+Optional tuning (memory, compaction, prompts) is documented in [FEATURES.md](./FEATURES.md#configuration). Defaults work without setting these.
 
 ### 3. Start infrastructure
 
@@ -101,107 +122,112 @@ EMAIL_SENDER_ADDRESS=onboarding@resend.dev
 docker compose up -d
 ```
 
-Services:
+Wait until Postgres is healthy (`docker compose ps`).
 
-| Service | Port | Purpose |
-|---------|------|---------|
-| Postgres (pgvector) | 5432 | Primary data store |
-| Redis | 6379 | Available for caching (not wired yet) |
-| Electric | 3100 | Realtime sync for chat/message tables |
+| Service | Host port | Purpose |
+|---------|-----------|---------|
+| Postgres (pgvector) | 5432 | Primary data store + vector search |
+| Redis | 6379 | Reserved for future caching |
+| Electric | 3100 | Realtime sync for `chat` / `message` |
 
-### 4. Run database migrations
+### 4. Database migrations
 
-From the repo root (with `POSTGRES_URL` set):
+From the repo root, with `POSTGRES_URL` exported (or inline):
 
 ```bash
+export POSTGRES_URL=postgresql://admin:<POSTGRES_PASSWORD>@localhost:5432/postgres
+
 pnpm exec drizzle-kit migrate --config packages/database/drizzle.config.ts
 ```
 
-Or push schema during development:
+For a fresh dev DB you can instead push schema directly:
 
 ```bash
 pnpm exec drizzle-kit push --config packages/database/drizzle.config.ts
 ```
 
-### 5. Start the dev server
+Rebuild the database package after schema changes:
+
+```bash
+pnpm --filter @workspace/database build
+```
+
+### 5. Start the app
+
+**Terminal 1 — web app:**
 
 ```bash
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), sign up, and start a chat.
+App: [http://localhost:3000](http://localhost:3000)
+
+**Terminal 2 — Inngest dev server** (needed so memories are extracted and saved after each reply):
+
+```bash
+npx inngest-cli@latest dev -u http://localhost:3000/api/inngest
+```
+
+Without Inngest, chat still works but **turn-based memory capture** (`memory/process-turn`) will not run.
+
+### 6. Smoke test
+
+1. Sign up at `/signup` (check Resend / logs if email fails).
+2. Start a new chat and tell the assistant something durable (e.g. “I prefer PostgreSQL with pgvector”).
+3. Confirm the Inngest dev UI shows `memory/process-turn` runs.
+4. Open a **new** chat and ask “What do you know about me?” — profile + memories should appear in the reply.
 
 ## Project Structure
 
 ```
 neander-memory-assignment/
-├── apps/web/                    # TanStack Start app
+├── apps/web/
 │   └── src/
-│       ├── routes/api/chat/     # Streaming chat endpoint
-│       ├── lib/ai/tools/memory.ts  # Memory tool (stub)
-│       ├── lib/collections/     # Electric-synced chat/message collections
-│       ├── components/chat/     # Chat UI
-│       └── server/              # Server functions (chat CRUD, auth)
+│       ├── routes/api/chat/       # Streaming chat + memory inject + compaction
+│       ├── routes/api/inngest/    # Inngest serve endpoint
+│       ├── routes/api/shape/      # Electric shape proxy
+│       ├── lib/memory.ts          # Extract, persist, retrieval helpers, prompts
+│       ├── lib/chat-context.ts    # Long-chat summarization + token budgeting
+│       ├── lib/inngest.ts         # Memory background functions
+│       ├── lib/ai/tools/memory.ts # memory-tool for explicit recall
+│       └── lib/collections/       # Electric-synced chat/message
 ├── packages/
-│   ├── database/                # Drizzle schema + migrations
-│   └── ui/                      # Shared shadcn/ui + AI elements
+│   ├── database/                  # Drizzle schema, migrations, memory queries
+│   └── ui/                        # Shared shadcn + AI Elements
 ├── docker-compose.yml
-├── assignment.md                # Assignment brief
-└── PLAN.md                      # Implementation plan
+├── assignment.md
+├── FEATURES.md
+└── PLAN.md                        # Original implementation plan (historical)
 ```
-
-## Memory System (Planned)
-
-The assignment requires a custom memory layer — no LangChain, mem0, or similar. The planned approach (detailed in PLAN.md):
-
-1. **`memory` table** in Postgres with pgvector embeddings, scoped by `userId`
-2. **Capture** — after each turn, an LLM extracts durable facts/preferences (not raw transcript dumps)
-3. **Retrieval** — top-k similarity search on the current user message before each reply
-4. **Injection** — relevant memories prepended to the system prompt; `memory-tool` available for explicit recall
-5. **Tests** — unit tests for capture, persistence, and retrieval logic
-6. **Latency guard** — bounded retrieval (fixed k, indexed vector column) to stay within the 200ms p50 budget at ~1,000 memories
 
 ## Scripts
 
 ```bash
-pnpm dev          # Start all apps in dev mode
+pnpm dev          # Start apps in dev mode (Turbo)
 pnpm build        # Production build
-pnpm typecheck    # TypeScript check across workspace
-pnpm lint         # ESLint across workspace
-pnpm format       # Prettier across workspace
+pnpm typecheck    # TypeScript across the workspace
+pnpm lint         # ESLint
+pnpm format       # Prettier
 ```
 
-## Design Decisions & Tradeoffs
+## Troubleshooting
 
-> To be filled in as memory work lands. See PLAN.md for the intended direction.
+| Issue | What to check |
+|-------|----------------|
+| DB connection errors | `POSTGRES_URL` matches `docker compose` credentials; Postgres container healthy |
+| Electric sync empty / errors | `ELECTRIC_URL` and `ELECTRIC_SECRET` match root `.env`; Electric container up |
+| Memories never saved | Inngest dev server running and pointed at `/api/inngest`; `INNGEST_DEV=1` |
+| AI errors | Valid `AI_GATEWAY_API_KEY`; model id in UI matches Gateway-supported models |
+| Auth email not sent | `RESEND_API_KEY` and verified sender domain in Resend |
+| Drizzle type errors after schema change | `pnpm --filter @workspace/database build` then restart TS server |
 
-**Planned tradeoffs:**
+## Assignment Deliverables
 
-- **Extract vs store everything** — Store distilled facts, not full message history, to limit noise and keep retrieval fast
-- **Prompt injection vs tool-only** — Inject top memories automatically; keep the tool for explicit “what do you remember about X?” queries
-- **pgvector vs external vector DB** — Use existing Postgres + pgvector to avoid extra infra; Redis reserved for optional embedding cache
-- **No UI for memory management (v1)** — Stretch goal: memory editing UI; v1 focuses on core capture/retrieve/demo
+Still outstanding for submission (see [assignment.md](./assignment.md)):
 
-## What I'd Build Next
-
-See [PLAN.md](./PLAN.md) § Stretch Goals. Priority after core memory:
-
-1. Memory editing (“forget that I prefer tabs”)
-2. Conflict detection when new facts contradict old ones
-3. PII/credential filtering before storage
-
-## Time Spent
-
-| Phase | Hours |
-|-------|-------|
-| Scaffold + chat/auth/infra | _TBD_ |
-| Memory implementation | _TBD_ |
-| Tests + demo + docs | _TBD_ |
-| **Total** | _TBD_ (assignment limit: 6h) |
-
-## Demo
-
-> Not yet recorded. Planned: a script or transcript showing preference stated in Chat A recalled in a new Chat B after restart.
+- Automated tests for memory capture, persistence, and retrieval
+- Cross-session demo transcript
+- Latency benchmark at ~1,000 memories (200ms p50 retrieval target)
 
 ## License
 

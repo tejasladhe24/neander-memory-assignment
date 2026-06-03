@@ -8,6 +8,20 @@
       "when": 1780482534467,
       "tag": "0000_pink_madrox",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780484928492,
+      "tag": "0001_chat_context_compaction",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780485079597,
+      "tag": "0002_overconfident_thing",
+      "breakpoints": true
     }
   ]
 }

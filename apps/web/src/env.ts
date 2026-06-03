@@ -18,9 +18,7 @@ export const env = createEnv({
     INNGEST_APP_ID: z.string().default("chatbot"),
 
     // Chat / LLM
-    CHAT_SYSTEM_PROMPT: z
-      .string()
-      .default("You are a helpful assistant."),
+    CHAT_SYSTEM_PROMPT: z.string().default("You are a helpful assistant."),
     CHAT_STREAM_MAX_STEPS: z.coerce.number().int().positive().default(5),
     CHAT_TITLE_MODEL: z.string().default("openai/gpt-4o-mini"),
     CHAT_TITLE_MAX_LENGTH: z.coerce.number().int().positive().default(64),
@@ -33,12 +31,39 @@ export const env = createEnv({
       .enum(["true", "false"])
       .default("false")
       .transform((value) => value === "true"),
+
+    // Long-chat context compaction
+    CHAT_CONTEXT_TOKEN_THRESHOLD: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(6000),
+    CHAT_CONTEXT_COMPACT_BATCH_SIZE: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(8),
+    CHAT_CONTEXT_KEEP_RECENT_MESSAGES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(6),
+    CHAT_CONTEXT_SUMMARY_MODEL: z.string().default("openai/gpt-4o-mini"),
+    CHAT_CONTEXT_SUMMARY_SYSTEM_PROMPT: z
+      .string()
+      .default(
+        "Summarize the following conversation excerpt for future context. Preserve user preferences, decisions, facts, names, and outcomes. Be concise; use short paragraphs or bullets. Omit greetings and filler."
+      ),
+    CHAT_CONTEXT_SUMMARY_PREFIX: z
+      .string()
+      .default(
+        "Summary of earlier messages in this chat (compacted to save context):"
+      ),
+
     MEMORY_PROFILE_LIMIT: z.coerce.number().int().positive().default(8),
 
     // Embeddings & models
-    MEMORY_EMBEDDING_MODEL: z
-      .string()
-      .default("openai/text-embedding-3-small"),
+    MEMORY_EMBEDDING_MODEL: z.string().default("openai/text-embedding-3-small"),
     MEMORY_EXTRACT_MODEL: z.string().default("openai/gpt-4o-mini"),
 
     // Memory retrieval
@@ -110,6 +135,15 @@ export const env = createEnv({
     CHAT_TITLE_MAX_LENGTH: process.env.CHAT_TITLE_MAX_LENGTH,
     CHAT_TITLE_SYSTEM_PROMPT: process.env.CHAT_TITLE_SYSTEM_PROMPT,
     CHAT_INCLUDE_USER_EMAIL: process.env.CHAT_INCLUDE_USER_EMAIL,
+    CHAT_CONTEXT_TOKEN_THRESHOLD: process.env.CHAT_CONTEXT_TOKEN_THRESHOLD,
+    CHAT_CONTEXT_COMPACT_BATCH_SIZE:
+      process.env.CHAT_CONTEXT_COMPACT_BATCH_SIZE,
+    CHAT_CONTEXT_KEEP_RECENT_MESSAGES:
+      process.env.CHAT_CONTEXT_KEEP_RECENT_MESSAGES,
+    CHAT_CONTEXT_SUMMARY_MODEL: process.env.CHAT_CONTEXT_SUMMARY_MODEL,
+    CHAT_CONTEXT_SUMMARY_SYSTEM_PROMPT:
+      process.env.CHAT_CONTEXT_SUMMARY_SYSTEM_PROMPT,
+    CHAT_CONTEXT_SUMMARY_PREFIX: process.env.CHAT_CONTEXT_SUMMARY_PREFIX,
     MEMORY_PROFILE_LIMIT: process.env.MEMORY_PROFILE_LIMIT,
 
     MEMORY_EMBEDDING_MODEL: process.env.MEMORY_EMBEDDING_MODEL,
