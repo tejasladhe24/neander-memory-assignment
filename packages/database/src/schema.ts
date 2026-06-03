@@ -6,6 +6,7 @@ import {
   pgTable,
   text,
   timestamp,
+  vector,
 } from "drizzle-orm/pg-core"
 import { timestamps } from "./utils"
 import type { UIMessage } from "ai"
@@ -129,6 +130,38 @@ export const $message = pgTable(
 
 export type PGMessage = typeof $message.$inferSelect
 
+const memoryTypes = ["preference", "decision", "fact"] as const
+
+export const $memoryType = pgEnum("memoryType", memoryTypes)
+
+export const $memory = pgTable(
+  "memory",
+  {
+    id: text("id").primaryKey(),
+    userId: text("userId")
+      .notNull()
+      .references(() => $user.id, { onDelete: "cascade" }),
+    content: text("content").notNull(),
+    type: $memoryType("category").notNull(),
+    embedding: vector("embedding", { dimensions: 1536 }),
+    sourceChatId: text("chatId")
+      .notNull()
+      .references(() => $chat.id, { onDelete: "cascade" }),
+    ...timestamps,
+    deletedAt: timestamp("deletedAt", { withTimezone: true }),
+  },
+  (table) => [
+    index("memory_user_id_idx").on(table.userId),
+    index("memory_source_chat_id_idx").on(table.sourceChatId),
+    index("embedding_hnsw_idx").using(
+      "hnsw",
+      table.embedding.op("vector_cosine_ops")
+    ),
+  ]
+)
+
+export type PGMemory = typeof $memory.$inferSelect
+
 export const schema = {
   // auth
   user: $user,
@@ -141,4 +174,6 @@ export const schema = {
   messageRole: $messageRole,
   chat: $chat,
   message: $message,
+  memoryType: $memoryType,
+  memory: $memory,
 }

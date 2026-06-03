@@ -2,7 +2,7 @@ import { db, generateTxId, schema } from "@/lib/db"
 import { authMiddleware } from "@/middlewares/auth"
 import { createServerFn } from "@tanstack/react-start"
 import z from "zod"
-import { and, eq } from "drizzle-orm"
+import { and, eq } from "@workspace/database"
 import { generateText, Output } from "ai"
 
 export const createChat = createServerFn()

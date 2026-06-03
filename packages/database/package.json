@@ -10,6 +10,10 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist node_modules .turbo dist"
   },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.21.0"
+  },
   "peerDependencies": {
     "drizzle-orm": "^0.45.2",
     "pg": "^8.20.0",

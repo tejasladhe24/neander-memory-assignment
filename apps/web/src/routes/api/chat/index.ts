@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { and, asc, eq, sql } from "drizzle-orm"
+import { and, asc, eq, searchMemoriesByEmbedding } from "@workspace/database"
 import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
+  embed,
   stepCountIs,
   streamText,
   type UIMessage,
@@ -13,7 +14,8 @@ import { convertToUIMessages, generateUUID } from "@/lib/utils"
 import { generateChatTitle } from "@/server/chat"
 import { authMiddleware } from "@/middlewares/auth"
 import { getCapabilities } from "@/lib/ai/models"
-import { memoryTool } from "@/lib/ai/tools/memory"
+import { retrieveMemoryTool } from "@/lib/ai/tools/memory"
+import { getMessageText, queueMemoriesFromTurn } from "@/lib/memory/queue"
 
 type RequestBody = {
   id: string
@@ -85,16 +87,47 @@ export const Route = createFileRoute("/api/chat/")({
             message,
           ])
 
+          // Retrieve memories relevant to the current user message
+          const userText = getMessageText(message)
+
+          const { embedding: queryEmbedding } = await embed({
+            value: userText,
+            model: "openai/text-embedding-3-small",
+          })
+
+          const memories = await searchMemoriesByEmbedding(db, {
+            userId,
+            embedding: queryEmbedding,
+            limit: 4,
+          })
+
+          const memoriesText =
+            memories.length > 0
+              ? memories
+                  .map(
+                    (m, index) =>
+                      `${index + 1}. [${m.type}] ${m.content} (similarity: ${m.similarity.toFixed(2)})`
+                  )
+                  .join("\n")
+              : "No relevant memories yet."
+
+          const SYSTEM_PROMPT = `${CHAT_SYSTEM_PROMPT}
+The following are remembered facts about this user. Use them when relevant. Do not mention the memory system unless asked.
+
+${memoriesText}`
+
           const stream = createUIMessageStream({
             generateId: generateUUID,
             execute: ({ writer }) => {
               const result = streamText({
                 model: resolvedModel,
-                system: CHAT_SYSTEM_PROMPT,
+                system: SYSTEM_PROMPT,
                 messages: modelMessages,
                 stopWhen: stepCountIs(5),
                 tools: {
-                  "memory-tool": memoryTool({ userId }),
+                  "memory-tool": retrieveMemoryTool({
+                    userId,
+                  }),
                 },
               })
 
@@ -102,9 +135,9 @@ export const Route = createFileRoute("/api/chat/")({
                 result.toUIMessageStream({ sendReasoning: isReasoningModel })
               )
             },
-            onFinish: async ({ messages }) => {
+            onFinish: async ({ messages: finishedMessages }) => {
               await Promise.all(
-                messages.map(async (m) => {
+                finishedMessages.map(async (m) => {
                   await db
                     .insert(schema.message)
                     .values({
@@ -125,6 +158,25 @@ export const Route = createFileRoute("/api/chat/")({
                     })
                 })
               )
+
+              const assistantMessages = finishedMessages.filter(
+                (m) => m.role === "assistant"
+              )
+
+              console.log("assistantMessages", assistantMessages)
+
+              if (assistantMessages.length > 0) {
+                try {
+                  await queueMemoriesFromTurn({
+                    userId,
+                    sourceChatId: id,
+                    userMessage: message,
+                    assistantMessages,
+                  })
+                } catch (error) {
+                  console.error("Failed to queue memory creation:", error)
+                }
+              }
             },
             onError: (error) => {
               console.error(error)

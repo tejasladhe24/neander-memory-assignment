@@ -1,3 +1,4 @@
+CREATE TYPE "public"."memoryType" AS ENUM('preference', 'decision', 'fact');--> statement-breakpoint
 CREATE TYPE "public"."messageRole" AS ENUM('user', 'system', 'assistant');--> statement-breakpoint
 CREATE TABLE "account" (
 	"id" text PRIMARY KEY NOT NULL,
@@ -29,6 +30,18 @@ CREATE TABLE "jwks" (
 	"privateKey" text NOT NULL,
 	"expiresAt" timestamp,
 	"createdAt" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "memory" (
+	"id" text PRIMARY KEY NOT NULL,
+	"userId" text NOT NULL,
+	"content" text NOT NULL,
+	"category" "memoryType" NOT NULL,
+	"embedding" vector(1536),
+	"chatId" text NOT NULL,
+	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
+	"updatedAt" timestamp with time zone NOT NULL,
+	"deletedAt" timestamp with time zone
 );
 --> statement-breakpoint
 CREATE TABLE "message" (
@@ -75,11 +88,16 @@ CREATE TABLE "verification" (
 --> statement-breakpoint
 ALTER TABLE "account" ADD CONSTRAINT "account_userId_user_id_fk" FOREIGN KEY ("userId") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "chat" ADD CONSTRAINT "chat_userId_user_id_fk" FOREIGN KEY ("userId") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "memory" ADD CONSTRAINT "memory_userId_user_id_fk" FOREIGN KEY ("userId") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "memory" ADD CONSTRAINT "memory_chatId_chat_id_fk" FOREIGN KEY ("chatId") REFERENCES "public"."chat"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "message" ADD CONSTRAINT "message_chatId_chat_id_fk" FOREIGN KEY ("chatId") REFERENCES "public"."chat"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "message" ADD CONSTRAINT "message_userId_user_id_fk" FOREIGN KEY ("userId") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session" ADD CONSTRAINT "session_userId_user_id_fk" FOREIGN KEY ("userId") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "account_user_id_idx" ON "account" USING btree ("userId");--> statement-breakpoint
 CREATE INDEX "chat_user_id_idx" ON "chat" USING btree ("userId");--> statement-breakpoint
+CREATE INDEX "memory_user_id_idx" ON "memory" USING btree ("userId");--> statement-breakpoint
+CREATE INDEX "memory_source_chat_id_idx" ON "memory" USING btree ("chatId");--> statement-breakpoint
+CREATE INDEX "embedding_hnsw_idx" ON "memory" USING hnsw ("embedding" vector_cosine_ops);--> statement-breakpoint
 CREATE INDEX "message_chat_id_idx" ON "message" USING btree ("chatId");--> statement-breakpoint
 CREATE INDEX "message_user_id_idx" ON "message" USING btree ("userId");--> statement-breakpoint
 CREATE INDEX "session_user_id_idx" ON "session" USING btree ("userId");--> statement-breakpoint

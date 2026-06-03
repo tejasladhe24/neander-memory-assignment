@@ -1,5 +1,7 @@
 export * from "./schema"
 export * from "./utils"
+export * from "./memory-search"
+export * from "./operators"
 
 import { schema } from "./schema"
 import { Pool } from "pg"

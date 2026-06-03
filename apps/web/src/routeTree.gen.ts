@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as authRouteImport } from './routes/(auth)/_'
 import { Route as appRouteImport } from './routes/(app)/_'
 import { Route as ApiShapeIndexRouteImport } from './routes/api/shape/index'
+import { Route as ApiInngestIndexRouteImport } from './routes/api/inngest/index'
 import { Route as ApiChatIndexRouteImport } from './routes/api/chat/index'
 import { Route as appIndexRouteImport } from './routes/(app)/_.index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -32,6 +33,11 @@ const appRoute = appRouteImport.update({
 const ApiShapeIndexRoute = ApiShapeIndexRouteImport.update({
   id: '/api/shape/',
   path: '/api/shape/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiInngestIndexRoute = ApiInngestIndexRouteImport.update({
+  id: '/api/inngest/',
+  path: '/api/inngest/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiChatIndexRoute = ApiChatIndexRouteImport.update({
@@ -83,6 +89,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/': typeof appIndexRoute
   '/api/chat/': typeof ApiChatIndexRoute
+  '/api/inngest/': typeof ApiInngestIndexRoute
   '/api/shape/': typeof ApiShapeIndexRoute
   '/chat/$chatId': typeof appChatChatIdRoute
 }
@@ -94,6 +101,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/': typeof appIndexRoute
   '/api/chat': typeof ApiChatIndexRoute
+  '/api/inngest': typeof ApiInngestIndexRoute
   '/api/shape': typeof ApiShapeIndexRoute
   '/chat/$chatId': typeof appChatChatIdRoute
 }
@@ -108,6 +116,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/(app)/_/': typeof appIndexRoute
   '/api/chat/': typeof ApiChatIndexRoute
+  '/api/inngest/': typeof ApiInngestIndexRoute
   '/api/shape/': typeof ApiShapeIndexRoute
   '/(app)/_/chat/$chatId': typeof appChatChatIdRoute
 }
@@ -121,6 +130,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/'
     | '/api/chat/'
+    | '/api/inngest/'
     | '/api/shape/'
     | '/chat/$chatId'
   fileRoutesByTo: FileRoutesByTo
@@ -132,6 +142,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/'
     | '/api/chat'
+    | '/api/inngest'
     | '/api/shape'
     | '/chat/$chatId'
   id:
@@ -145,6 +156,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/(app)/_/'
     | '/api/chat/'
+    | '/api/inngest/'
     | '/api/shape/'
     | '/(app)/_/chat/$chatId'
   fileRoutesById: FileRoutesById
@@ -154,6 +166,7 @@ export interface RootRouteChildren {
   authRoute: typeof authRouteWithChildren
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiChatIndexRoute: typeof ApiChatIndexRoute
+  ApiInngestIndexRoute: typeof ApiInngestIndexRoute
   ApiShapeIndexRoute: typeof ApiShapeIndexRoute
 }
 
@@ -178,6 +191,13 @@ declare module '@tanstack/react-router' {
       path: '/api/shape'
       fullPath: '/api/shape/'
       preLoaderRoute: typeof ApiShapeIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/inngest/': {
+      id: '/api/inngest/'
+      path: '/api/inngest'
+      fullPath: '/api/inngest/'
+      preLoaderRoute: typeof ApiInngestIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/chat/': {
@@ -272,6 +292,7 @@ const rootRouteChildren: RootRouteChildren = {
   authRoute: authRouteWithChildren,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiChatIndexRoute: ApiChatIndexRoute,
+  ApiInngestIndexRoute: ApiInngestIndexRoute,
   ApiShapeIndexRoute: ApiShapeIndexRoute,
 }
 export const routeTree = rootRouteImport
