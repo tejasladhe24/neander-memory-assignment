@@ -10,84 +10,12 @@ import type { PGMessage } from "@workspace/database"
 import { and, eq } from "@workspace/database"
 import { generateText, type UIMessage } from "ai"
 
-const SUMMARY_MESSAGE_ID = "chat-context-summary"
-
 export type ChatContextState = {
   contextSummary: string | null
   compactedMessageCount: number
 }
 
-export function estimateTokens(text: string) {
-  return Math.ceil(text.length / 4)
-}
-
-export function estimateMessagesTokenCount(messages: UIMessage[]) {
-  return messages.reduce(
-    (total, message) =>
-      total + estimateTokens(getMessageText(message)) + 4,
-    0
-  )
-}
-
-export function getUncompactedMessages(
-  messages: UIMessage[],
-  compactedMessageCount: number
-) {
-  return messages.slice(compactedMessageCount)
-}
-
-export function selectOldestMessagesForCompaction(
-  messages: UIMessage[],
-  compactedMessageCount: number,
-  batchSize: number,
-  keepRecent: number
-) {
-  const uncompacted = getUncompactedMessages(messages, compactedMessageCount)
-  if (uncompacted.length <= keepRecent) {
-    return []
-  }
-
-  const compactableCount = uncompacted.length - keepRecent
-  const take = Math.min(batchSize, compactableCount)
-  return uncompacted.slice(0, take)
-}
-
-export function formatMessagesForSummary(messages: UIMessage[]) {
-  return messages
-    .map((message) => `${message.role}: ${getMessageText(message)}`)
-    .filter((line) => line.length > 0)
-    .join("\n")
-}
-
-export function mergeContextSummaries(
-  existing: string | null,
-  addition: string
-) {
-  const trimmed = addition.trim()
-  if (!trimmed) return existing
-
-  if (!existing?.trim()) {
-    return trimmed
-  }
-
-  return `${existing.trim()}\n\n${trimmed}`
-}
-
-export function buildContextSummaryMessage(
-  contextSummary: string
-): UIMessage {
-  return {
-    id: SUMMARY_MESSAGE_ID,
-    role: "system",
-    parts: [
-      {
-        type: "text",
-        text: `${env.CHAT_CONTEXT_SUMMARY_PREFIX}\n${contextSummary}`,
-      },
-    ],
-  }
-}
-
+/** Messages sent to the model: rolling summary + uncompacted tail + current turn. */
 export function buildMessagesForModel(params: {
   dbMessages: UIMessage[]
   currentMessage: UIMessage
@@ -95,10 +23,7 @@ export function buildMessagesForModel(params: {
   compactedMessageCount: number
 }): UIMessage[] {
   const active = [
-    ...getUncompactedMessages(
-      params.dbMessages,
-      params.compactedMessageCount
-    ),
+    ...params.dbMessages.slice(params.compactedMessageCount),
     params.currentMessage,
   ]
 
@@ -107,37 +32,21 @@ export function buildMessagesForModel(params: {
   }
 
   return [
-    buildContextSummaryMessage(params.contextSummary),
+    {
+      id: "chat-context-summary",
+      role: "system",
+      parts: [
+        {
+          type: "text",
+          text: `${env.CHAT_CONTEXT_SUMMARY_PREFIX}\n${params.contextSummary}`,
+        },
+      ],
+    },
     ...active,
   ]
 }
 
-export function shouldCompactContext(
-  messages: UIMessage[],
-  compactedMessageCount: number
-) {
-  const uncompacted = getUncompactedMessages(messages, compactedMessageCount)
-  return (
-    estimateMessagesTokenCount(uncompacted) >=
-    env.CHAT_CONTEXT_TOKEN_THRESHOLD
-  )
-}
-
-async function summarizeMessageBatch(messages: UIMessage[]) {
-  const transcript = formatMessagesForSummary(messages)
-  if (!transcript.trim()) {
-    return ""
-  }
-
-  const { text } = await generateText({
-    model: env.CHAT_CONTEXT_SUMMARY_MODEL,
-    system: env.CHAT_CONTEXT_SUMMARY_SYSTEM_PROMPT,
-    prompt: transcript,
-  })
-
-  return text.trim()
-}
-
+/** Summarize oldest messages when context tokens exceed threshold; persist facts to memory. */
 export async function maybeCompactChatContext(params: {
   chatId: string
   userId: string
@@ -150,31 +59,57 @@ export async function maybeCompactChatContext(params: {
     ...(params.currentMessage ? [params.currentMessage] : []),
   ]
   const { compactedMessageCount, contextSummary } = params.contextState
+  const uncompacted = uiMessages.slice(compactedMessageCount)
 
-  if (!shouldCompactContext(uiMessages, compactedMessageCount)) {
+  const tokenCount = uncompacted.reduce(
+    (total, message) =>
+      total + Math.ceil(getMessageText(message).length / 4) + 4,
+    0
+  )
+
+  if (tokenCount < env.CHAT_CONTEXT_TOKEN_THRESHOLD) {
     return params.contextState
   }
 
-  const batch = selectOldestMessagesForCompaction(
-    uiMessages,
-    compactedMessageCount,
-    env.CHAT_CONTEXT_COMPACT_BATCH_SIZE,
-    env.CHAT_CONTEXT_KEEP_RECENT_MESSAGES
+  const keepRecent = env.CHAT_CONTEXT_KEEP_RECENT_MESSAGES
+  if (uncompacted.length <= keepRecent) {
+    return params.contextState
+  }
+
+  const batch = uncompacted.slice(
+    0,
+    Math.min(
+      env.CHAT_CONTEXT_COMPACT_BATCH_SIZE,
+      uncompacted.length - keepRecent
+    )
   )
 
   if (batch.length === 0) {
     return params.contextState
   }
 
+  const transcript = batch
+    .map((message) => `${message.role}: ${getMessageText(message)}`)
+    .filter((line) => line.length > 0)
+    .join("\n")
+
   const [summaryAddition, extractedMemories] = await Promise.all([
-    summarizeMessageBatch(batch),
-    extractMemoriesFromTranscript(formatMessagesForSummary(batch)),
+    transcript.trim()
+      ? generateText({
+          model: env.CHAT_CONTEXT_SUMMARY_MODEL,
+          system: env.CHAT_CONTEXT_SUMMARY_SYSTEM_PROMPT,
+          prompt: transcript,
+        }).then((result) => result.text.trim())
+      : Promise.resolve(""),
+    extractMemoriesFromTranscript(transcript),
   ])
 
-  const newSummary = mergeContextSummaries(
-    contextSummary,
-    summaryAddition
-  )
+  const addition = summaryAddition.trim()
+  const newSummary = !addition
+    ? contextSummary
+    : !contextSummary?.trim()
+      ? addition
+      : `${contextSummary.trim()}\n\n${addition}`
   const newCompactedCount = compactedMessageCount + batch.length
 
   await Promise.all([
@@ -203,17 +138,5 @@ export async function maybeCompactChatContext(params: {
   return {
     contextSummary: newSummary,
     compactedMessageCount: newCompactedCount,
-  }
-}
-
-export function getChatContextState(
-  chat: {
-    contextSummary: string | null
-    compactedMessageCount: number | null
-  } | null | undefined
-): ChatContextState {
-  return {
-    contextSummary: chat?.contextSummary ?? null,
-    compactedMessageCount: chat?.compactedMessageCount ?? 0,
   }
 }

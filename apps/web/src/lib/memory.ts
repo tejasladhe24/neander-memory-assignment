@@ -37,11 +37,6 @@ export type ExtractedMemory = z.infer<
   typeof extractedMemoriesSchema
 >["memories"][number]
 
-type ChatUser = {
-  name: string
-  email: string
-}
-
 export function getMessageText(message: UIMessage) {
   return message.parts
     .map((part) => (part.type === "text" ? part.text : ""))
@@ -49,20 +44,11 @@ export function getMessageText(message: UIMessage) {
     .trim()
 }
 
-export async function extractMemories(params: {
-  userMessage: string
-  assistantMessage: string
-}): Promise<ExtractedMemory[]> {
-  const { userMessage, assistantMessage } = params
-
-  if (!userMessage.trim() || !assistantMessage.trim()) {
-    return []
-  }
-
+async function extractMemoriesWithPrompt(prompt: string) {
   const result = await generateText({
     model: env.MEMORY_EXTRACT_MODEL,
     system: env.MEMORY_EXTRACT_SYSTEM_PROMPT,
-    prompt: `User: ${userMessage}\n\nAssistant: ${assistantMessage}`,
+    prompt,
     output: Output.object({ schema: extractedMemoriesSchema }),
   })
 
@@ -70,6 +56,20 @@ export async function extractMemories(params: {
 
   return result.output.memories.filter(
     (memory) => memory.content.trim() && !secretPattern.test(memory.content)
+  )
+}
+
+export async function extractMemories(params: {
+  userMessage: string
+  assistantMessage: string
+}): Promise<ExtractedMemory[]> {
+  const { userMessage, assistantMessage } = params
+  if (!userMessage.trim() || !assistantMessage.trim()) {
+    return []
+  }
+
+  return extractMemoriesWithPrompt(
+    `User: ${userMessage}\n\nAssistant: ${assistantMessage}`
   )
 }
 
@@ -80,18 +80,7 @@ export async function extractMemoriesFromTranscript(
     return []
   }
 
-  const result = await generateText({
-    model: env.MEMORY_EXTRACT_MODEL,
-    system: env.MEMORY_EXTRACT_SYSTEM_PROMPT,
-    prompt: `Conversation excerpt:\n${transcript}`,
-    output: Output.object({ schema: extractedMemoriesSchema }),
-  })
-
-  const secretPattern = getMemorySecretFilterPattern()
-
-  return result.output.memories.filter(
-    (memory) => memory.content.trim() && !secretPattern.test(memory.content)
-  )
+  return extractMemoriesWithPrompt(`Conversation excerpt:\n${transcript}`)
 }
 
 export async function createMemoryRecord(input: CreateMemoryInput) {
@@ -131,15 +120,11 @@ export async function createMemoryRecord(input: CreateMemoryInput) {
   return { memory, skipped: false as const }
 }
 
-export function isRecallStyleQuery(text: string) {
-  return getMemoryRecallQueryPattern().test(text)
-}
-
 export function buildRetrievalEmbedText(
   userText: string,
   recentMessages: UIMessage[]
 ) {
-  if (!isRecallStyleQuery(userText)) {
+  if (!getMemoryRecallQueryPattern().test(userText)) {
     return userText
   }
 
@@ -157,63 +142,48 @@ export function buildRetrievalEmbedText(
 }
 
 export function getRetrievalMinSimilarity(userText: string) {
-  return isRecallStyleQuery(userText)
+  return getMemoryRecallQueryPattern().test(userText)
     ? env.MEMORY_RECALL_MIN_SIMILARITY
     : env.MEMORY_MIN_SIMILARITY
 }
 
-function normalizeContent(content: string) {
-  return content.trim().toLowerCase()
-}
-
-function dedupeMemories<T extends { content: string }>(items: T[]) {
-  const seen = new Set<string>()
-  return items.filter((item) => {
-    const key = normalizeContent(item.content)
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-}
-
-function formatMemoryLines(memories: Array<{ content: string; type: string }>) {
-  if (memories.length === 0) {
-    return "None stored yet."
-  }
-
-  return memories
-    .map((m, index) => `${index + 1}. [${m.type}] ${m.content}`)
-    .join("\n")
-}
-
-function formatUserProfileSection(user: ChatUser) {
-  const lines = [`- Name: ${user.name}`]
-
-  if (env.CHAT_INCLUDE_USER_EMAIL) {
-    lines.push(`- Email: ${user.email}`)
-  }
-
-  return lines.join("\n")
-}
-
 export function buildChatSystemPrompt(params: {
-  user: ChatUser
+  user: { name: string; email: string }
   profileMemories: MemoryRecord[]
   queryMemories: MemorySearchResult[]
 }) {
   const { user, profileMemories, queryMemories } = params
+  const seen = new Set<string>()
+  const contentKey = (content: string) => content.trim().toLowerCase()
 
-  const profileFacts = dedupeMemories(profileMemories)
-  const queryOnly = dedupeMemories(queryMemories).filter(
+  const dedupe = <T extends { content: string }>(items: T[]) =>
+    items.filter((item) => {
+      const key = contentKey(item.content)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+
+  const formatList = (memories: Array<{ content: string; type: string }>) =>
+    memories.length === 0
+      ? "None stored yet."
+      : memories
+          .map((m, i) => `${i + 1}. [${m.type}] ${m.content}`)
+          .join("\n")
+
+  const profileFacts = dedupe(profileMemories)
+  seen.clear()
+  const queryOnly = dedupe(queryMemories).filter(
     (memory) =>
       !profileFacts.some(
-        (p) => normalizeContent(p.content) === normalizeContent(memory.content)
+        (p) => contentKey(p.content) === contentKey(memory.content)
       )
   )
 
-  const profileSection = formatMemoryLines(profileFacts)
-  const querySection =
-    queryOnly.length > 0 ? formatMemoryLines(queryOnly) : null
+  const profileLines = [`- Name: ${user.name}`]
+  if (env.CHAT_INCLUDE_USER_EMAIL) {
+    profileLines.push(`- Email: ${user.email}`)
+  }
 
   const sections = [
     env.CHAT_SYSTEM_PROMPT,
@@ -221,17 +191,17 @@ export function buildChatSystemPrompt(params: {
     "You are speaking with a signed-in user. Use the profile and memories below. When they ask what you know about them, summarize from this context — do not say you have no information if facts are listed here.",
     "",
     "## User profile",
-    formatUserProfileSection(user),
+    profileLines.join("\n"),
     "",
     "## What you remember about this user",
-    profileSection,
+    formatList(profileFacts),
   ]
 
-  if (querySection) {
+  if (queryOnly.length > 0) {
     sections.push(
       "",
       "## Especially relevant to their latest message",
-      querySection
+      formatList(queryOnly)
     )
   }
 

@@ -30,7 +30,6 @@ import {
 } from "@/lib/memory"
 import {
   buildMessagesForModel,
-  getChatContextState,
   maybeCompactChatContext,
 } from "@/lib/chat-context"
 import { queueMemoriesFromTurn } from "@/lib/inngest"
@@ -96,7 +95,10 @@ export const Route = createFileRoute("/api/chat/")({
             ]).then(([rows]) => rows),
           ])
 
-          let contextState = getChatContextState(chat)
+          let contextState = {
+            contextSummary: chat.contextSummary ?? null,
+            compactedMessageCount: chat.compactedMessageCount ?? 0,
+          }
 
           contextState = await maybeCompactChatContext({
             chatId: id,

@@ -1,6 +1,6 @@
-import { env } from "@/env"
+import { env, getMemoryRecallQueryPattern } from "@/env"
 import { db } from "@/lib/db"
-import { getRetrievalMinSimilarity, isRecallStyleQuery } from "@/lib/memory"
+import { getRetrievalMinSimilarity } from "@/lib/memory"
 import { searchMemoriesByEmbedding } from "@workspace/database"
 import { embed, tool } from "ai"
 import z from "zod"
@@ -12,7 +12,7 @@ export const retrieveMemoryTool = (props: { userId: string }) =>
       query: z.string().describe(env.MEMORY_TOOL_QUERY_DESCRIPTION),
     }),
     execute: async ({ query }) => {
-      const embedText = isRecallStyleQuery(query)
+      const embedText = getMemoryRecallQueryPattern().test(query)
         ? `${query}\n\n${env.MEMORY_RECALL_CONTEXT_SUFFIX}`
         : query
 

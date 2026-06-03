@@ -2,34 +2,43 @@
 
 A conversational agent with **persistent, cross-session memory** — built for the [Neander take-home assignment](./assignment.md). The agent remembers user preferences, decisions, and facts across chats and restarts, with vector retrieval, async capture, and long-chat context compaction.
 
-See **[FEATURES.md](./FEATURES.md)** for a full feature list.
+See **[FEATURES.md](./FEATURES.md)** for a full feature list and **[PROJECT-QA.md](./PROJECT-QA.md)** for review-style Q&A (system design, infra, situational).
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  apps/web (TanStack Start + React)                               │
-│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────────────┐ │
-│  │ Chat UI     │→ │ /api/chat    │→ │ Vercel AI Gateway        │ │
-│  │ (useChat +  │  │ streamText   │  │ (multi-model via env)    │ │
-│  │  Electric)  │  │ + memory inj │  └──────────────────────────┘ │
-│  └─────────────┘  └──────┬───────┘                               │
-│                          │                                       │
-│              memory-tool · context compaction                    │
-│                          │                                       │
-│              ┌───────────▼───────────┐                           │
-│              │ /api/inngest          │  async memory extract/persist│
-│              └───────────────────────┘                           │
-└──────────────────────────┼───────────────────────────────────────┘
-                           │
-┌──────────────────────────▼───────────────────────────────────────┐
-│  packages/database (Drizzle ORM)                                 │
-│  user · session · chat · message · memory (pgvector + HNSW)        │
-└──────────────────────────┬───────────────────────────────────────┘
-                           │
-┌──────────────────────────▼───────────────────────────────────────┐
-│  Docker: Postgres (pgvector) · Redis · ElectricSQL               │
-└──────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  subgraph browser ["Browser"]
+    UI["Chat UI<br/>useChat + Electric sync"]
+  end
+
+  subgraph web ["apps/web — TanStack Start + React"]
+    ChatAPI["/api/chat<br/>memory inject · context compaction · streamText"]
+    ShapeAPI["/api/shape<br/>Electric proxy"]
+    InngestAPI["/api/inngest<br/>async memory extract & persist"]
+    AIGW["Vercel AI Gateway<br/>LLM + embeddings"]
+  end
+
+  subgraph database ["packages/database — Drizzle ORM"]
+    Schema["user · session · chat · message · memory<br/>pgvector + HNSW index"]
+  end
+
+  subgraph docker ["Docker"]
+    Postgres["Postgres 16 + pgvector"]
+    Electric["ElectricSQL"]
+    Redis["Redis"]
+  end
+
+  UI -->|POST stream| ChatAPI
+  UI -->|live shapes| ShapeAPI
+  ChatAPI --> AIGW
+  ChatAPI -->|memory-tool| Schema
+  ChatAPI -->|queue on finish| InngestAPI
+  InngestAPI --> Schema
+  ShapeAPI --> Electric
+  ChatAPI --> Schema
+  Schema --> Postgres
+  Electric --> Postgres
 ```
 
 **Design:** Long-term memory is **user-scoped** (not chat-scoped). Chat history stays per conversation; memories and compaction summaries are separate layers.
