@@ -1,7 +1,6 @@
+import { env } from "@/env"
 import { inngest } from "@/lib/inngest"
 import type { UIMessage } from "ai"
-
-const MIN_MESSAGE_LENGTH = 3
 
 export function getMessageText(message: UIMessage) {
   return message.parts
@@ -24,8 +23,8 @@ export function queueMemoriesFromTurn(params: {
     .join("\n")
 
   if (
-    userText.length < MIN_MESSAGE_LENGTH ||
-    assistantText.length < MIN_MESSAGE_LENGTH
+    userText.length < env.MEMORY_MIN_MESSAGE_LENGTH ||
+    assistantText.length < env.MEMORY_MIN_MESSAGE_LENGTH
   ) {
     return
   }

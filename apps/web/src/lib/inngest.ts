@@ -1,3 +1,4 @@
+import { env } from "@/env"
 import { createMemoryRecord } from "@/lib/memory/create"
 import { extractMemories } from "@/lib/memory/extract"
 import { Inngest } from "inngest"
@@ -23,7 +24,7 @@ export type MemoryProcessTurnEvent = {
 }
 
 export const inngest = new Inngest({
-  id: "chatbot",
+  id: env.INNGEST_APP_ID,
 })
 
 export const createMemory = inngest.createFunction(

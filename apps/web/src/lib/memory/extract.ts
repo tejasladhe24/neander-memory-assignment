@@ -1,3 +1,4 @@
+import { env, getMemorySecretFilterPattern } from "@/env"
 import { generateText, Output } from "ai"
 import z from "zod"
 
@@ -13,15 +14,12 @@ const extractedMemoriesSchema = z.object({
         type: z.enum(["preference", "decision", "fact"]),
       })
     )
-    .max(2),
+    .max(env.MEMORY_EXTRACT_MAX_PER_TURN),
 })
 
 export type ExtractedMemory = z.infer<
   typeof extractedMemoriesSchema
 >["memories"][number]
-
-const SECRET_PATTERN =
-  /\b(sk-[a-zA-Z0-9]+|api[_-]?key|password|secret|token)\b/i
 
 export async function extractMemories(params: {
   userMessage: string
@@ -34,16 +32,15 @@ export async function extractMemories(params: {
   }
 
   const result = await generateText({
-    model: "openai/gpt-4o-mini",
-    system: `Extract 0-2 durable, user-specific memories from this exchange.
-Only include preferences, decisions, or facts worth remembering across future conversations.
-Skip greetings, small talk, transient tasks, and one-off questions.
-Return an empty list if nothing is worth storing.`,
+    model: env.MEMORY_EXTRACT_MODEL,
+    system: env.MEMORY_EXTRACT_SYSTEM_PROMPT,
     prompt: `User: ${userMessage}\n\nAssistant: ${assistantMessage}`,
     output: Output.object({ schema: extractedMemoriesSchema }),
   })
 
+  const secretPattern = getMemorySecretFilterPattern()
+
   return result.output.memories.filter(
-    (memory) => memory.content.trim() && !SECRET_PATTERN.test(memory.content)
+    (memory) => memory.content.trim() && !secretPattern.test(memory.content)
   )
 }

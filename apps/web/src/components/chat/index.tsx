@@ -54,7 +54,9 @@ export const Chat = ({ chatId }: ChatProps) => {
 
   const [input, setInput] = useState("")
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false)
-  const [selectedModel, setSelectedModel] = useState<string>("gpt-4o-mini")
+  const [selectedModel, setSelectedModel] = useState<string>(
+    env.VITE_DEFAULT_CHAT_MODEL
+  )
 
   const { data: dbMessages } = useLiveQuery(
     (q) => {

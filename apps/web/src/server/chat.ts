@@ -1,3 +1,4 @@
+import { env } from "@/env"
 import { db, generateTxId, schema } from "@/lib/db"
 import { authMiddleware } from "@/middlewares/auth"
 import { createServerFn } from "@tanstack/react-start"
@@ -105,9 +106,8 @@ export const deleteChat = createServerFn()
 
 export const generateChatTitle = async (messageText: string) => {
   return await generateText({
-    model: "openai/gpt-4o-mini",
-    system:
-      "You are a helpful assistant that generates a title for a chat based on the message text.",
+    model: env.CHAT_TITLE_MODEL,
+    system: env.CHAT_TITLE_SYSTEM_PROMPT,
     messages: [
       {
         role: "user",
@@ -118,7 +118,7 @@ export const generateChatTitle = async (messageText: string) => {
       schema: z.object({
         title: z
           .string()
-          .max(64)
+          .max(env.CHAT_TITLE_MAX_LENGTH)
           .describe("Short title describing the conversation"),
       }),
     }),

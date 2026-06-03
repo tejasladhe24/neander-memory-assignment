@@ -1,9 +1,8 @@
+import { env } from "@/env"
 import { db } from "@/lib/db"
 import { generateUUID } from "@/lib/utils"
 import { schema, searchMemoriesByEmbedding } from "@workspace/database"
 import { embed } from "ai"
-
-const DUPLICATE_SIMILARITY_THRESHOLD = 0.92
 
 export type CreateMemoryInput = {
   userId: string
@@ -16,7 +15,7 @@ export async function createMemoryRecord(input: CreateMemoryInput) {
   const { userId, content, type, sourceChatId } = input
 
   const { embedding } = await embed({
-    model: "openai/text-embedding-3-small",
+    model: env.MEMORY_EMBEDDING_MODEL,
     value: content,
   })
 
@@ -24,11 +23,11 @@ export async function createMemoryRecord(input: CreateMemoryInput) {
     userId,
     embedding,
     limit: 1,
+    minSimilarity: env.MEMORY_DUPLICATE_SIMILARITY_THRESHOLD,
   })
 
   if (
     similar[0] &&
-    similar[0].similarity >= DUPLICATE_SIMILARITY_THRESHOLD &&
     similar[0].content.trim().toLowerCase() === content.trim().toLowerCase()
   ) {
     return { memory: null, skipped: true as const }

@@ -1,12 +1,9 @@
+import { env, getMemoryRecallQueryPattern } from "@/env"
 import type { UIMessage } from "ai"
 import { getMessageText } from "@/lib/memory/queue"
 
-/** User is asking the agent to recall something from memory. */
-const RECALL_QUERY_PATTERN =
-  /\b(remember|recall|what did i|told you|you know|my .*(setup|preference|stack))\b/i
-
 export function isRecallStyleQuery(text: string) {
-  return RECALL_QUERY_PATTERN.test(text)
+  return getMemoryRecallQueryPattern().test(text)
 }
 
 /**
@@ -23,18 +20,20 @@ export function buildRetrievalEmbedText(
   }
 
   const recentContext = recentMessages
-    .slice(-8)
+    .slice(-env.MEMORY_RECENT_CONTEXT_MESSAGE_COUNT)
     .map((m) => `${m.role}: ${getMessageText(m)}`)
     .filter((line) => line.length > 0)
     .join("\n")
 
   if (!recentContext) {
-    return `${userText}\n\nUser preferences, decisions, and facts.`
+    return `${userText}\n\n${env.MEMORY_RECALL_CONTEXT_SUFFIX}`
   }
 
   return `${userText}\n\nRecent conversation:\n${recentContext}`
 }
 
 export function getRetrievalMinSimilarity(userText: string) {
-  return isRecallStyleQuery(userText) ? 0.35 : 0.5
+  return isRecallStyleQuery(userText)
+    ? env.MEMORY_RECALL_MIN_SIMILARITY
+    : env.MEMORY_MIN_SIMILARITY
 }

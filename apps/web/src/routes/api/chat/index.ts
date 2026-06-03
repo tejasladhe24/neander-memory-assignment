@@ -1,5 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { and, asc, eq, searchMemoriesByEmbedding } from "@workspace/database"
+import {
+  and,
+  asc,
+  eq,
+  listUserMemories,
+  searchMemoriesByEmbedding,
+} from "@workspace/database"
 import {
   convertToModelMessages,
   createUIMessageStream,
@@ -9,13 +15,14 @@ import {
   streamText,
   type UIMessage,
 } from "ai"
+import { env } from "@/env"
 import { db, schema } from "@/lib/db"
 import { convertToUIMessages, generateUUID } from "@/lib/utils"
 import { generateChatTitle } from "@/server/chat"
 import { authMiddleware } from "@/middlewares/auth"
 import { getCapabilities } from "@/lib/ai/models"
 import { retrieveMemoryTool } from "@/lib/ai/tools/memory"
-import { formatMemoriesForPrompt } from "@/lib/memory/format"
+import { buildChatSystemPrompt } from "@/lib/memory/prompt"
 import { getMessageText, queueMemoriesFromTurn } from "@/lib/memory/queue"
 import {
   buildRetrievalEmbedText,
@@ -28,10 +35,6 @@ type RequestBody = {
   model: string
 }
 
-const CHAT_SYSTEM_PROMPT = `You are a helpful assistant.`
-const MIN_CHARS_FOR_MEMORY_RETRIEVAL = 3
-const EMBEDDING_MODEL = "openai/text-embedding-3-small" as const
-
 export const Route = createFileRoute("/api/chat/")({
   server: {
     middleware: [authMiddleware],
@@ -41,11 +44,16 @@ export const Route = createFileRoute("/api/chat/")({
 
         const { id, message, model } = body
         const userId = context.user.id
+        const user = context.user
         const resolvedModel = model
 
         try {
           const userText = getMessageText(message)
           const capabilitiesPromise = getCapabilities()
+          const profileMemoriesPromise = listUserMemories(db, {
+            userId,
+            limit: env.MEMORY_PROFILE_LIMIT,
+          })
 
           const chat = await db.query.chat.findFirst({
             where: and(eq(schema.chat.id, id), eq(schema.chat.userId, userId)),
@@ -88,10 +96,10 @@ export const Route = createFileRoute("/api/chat/")({
           const minSimilarity = getRetrievalMinSimilarity(userText)
 
           const queryEmbeddingPromise =
-            retrievalEmbedText.length >= MIN_CHARS_FOR_MEMORY_RETRIEVAL
+            retrievalEmbedText.length >= env.MEMORY_MIN_MESSAGE_LENGTH
               ? embed({
                   value: retrievalEmbedText,
-                  model: EMBEDDING_MODEL,
+                  model: env.MEMORY_EMBEDDING_MODEL,
                 }).then((result) => result.embedding)
               : Promise.resolve(null)
 
@@ -102,24 +110,25 @@ export const Route = createFileRoute("/api/chat/")({
               ? capabilities[resolvedModel].reasoning
               : false
 
-          const [modelMessages, memories] = await Promise.all([
-            convertToModelMessages([...uiMessages, message]),
-            queryEmbedding
-              ? searchMemoriesByEmbedding(db, {
-                  userId,
-                  embedding: queryEmbedding,
-                  limit: 4,
-                  minSimilarity,
-                })
-              : Promise.resolve([]),
-          ])
+          const [modelMessages, profileMemories, queryMemories] =
+            await Promise.all([
+              convertToModelMessages([...uiMessages, message]),
+              profileMemoriesPromise,
+              queryEmbedding
+                ? searchMemoriesByEmbedding(db, {
+                    userId,
+                    embedding: queryEmbedding,
+                    limit: env.MEMORY_RETRIEVAL_LIMIT,
+                    minSimilarity,
+                  })
+                : Promise.resolve([]),
+            ])
 
-          const memoriesText = formatMemoriesForPrompt(memories)
-
-          const SYSTEM_PROMPT = `${CHAT_SYSTEM_PROMPT}
-The following are remembered facts about this user. Use them when relevant. Do not mention the memory system unless asked.
-
-${memoriesText}`
+          const SYSTEM_PROMPT = buildChatSystemPrompt({
+            user: { name: user.name, email: user.email },
+            profileMemories,
+            queryMemories,
+          })
 
           const stream = createUIMessageStream({
             generateId: generateUUID,
@@ -128,7 +137,7 @@ ${memoriesText}`
                 model: resolvedModel,
                 system: SYSTEM_PROMPT,
                 messages: modelMessages,
-                stopWhen: stepCountIs(5),
+                stopWhen: stepCountIs(env.CHAT_STREAM_MAX_STEPS),
                 tools: {
                   "memory-tool": retrieveMemoryTool({
                     userId,

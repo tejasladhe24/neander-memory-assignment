@@ -1,6 +1,7 @@
 export * from "./schema"
 export * from "./utils"
 export * from "./memory-search"
+export * from "./memory-list"
 export * from "./operators"
 
 import { schema } from "./schema"
