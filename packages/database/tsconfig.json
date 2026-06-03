@@ -1,0 +1,11 @@
+{
+  "extends": "@workspace/typescript-config/base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@workspace/pgdb/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "drizzle.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}
