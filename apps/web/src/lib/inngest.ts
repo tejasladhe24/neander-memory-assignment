@@ -1,7 +1,11 @@
 import { env } from "@/env"
-import { createMemoryRecord } from "@/lib/memory/create"
-import { extractMemories } from "@/lib/memory/extract"
+import {
+  createMemoryRecord,
+  extractMemories,
+  getMessageText,
+} from "@/lib/memory"
 import { Inngest } from "inngest"
+import type { UIMessage } from "ai"
 
 export type MemoryCreateEvent = {
   name: "memory/create"
@@ -26,6 +30,40 @@ export type MemoryProcessTurnEvent = {
 export const inngest = new Inngest({
   id: env.INNGEST_APP_ID,
 })
+
+export function queueMemoriesFromTurn(params: {
+  userId: string
+  sourceChatId: string
+  userMessage: UIMessage
+  assistantMessages: UIMessage[]
+}) {
+  const userText = getMessageText(params.userMessage)
+  const assistantText = params.assistantMessages
+    .map(getMessageText)
+    .filter(Boolean)
+    .join("\n")
+
+  if (
+    userText.length < env.MEMORY_MIN_MESSAGE_LENGTH ||
+    assistantText.length < env.MEMORY_MIN_MESSAGE_LENGTH
+  ) {
+    return
+  }
+
+  void inngest
+    .send({
+      name: "memory/process-turn",
+      data: {
+        userId: params.userId,
+        sourceChatId: params.sourceChatId,
+        userMessage: userText,
+        assistantMessage: assistantText,
+      },
+    })
+    .catch((error) => {
+      console.error("Failed to queue memory/process-turn:", error)
+    })
+}
 
 export const createMemory = inngest.createFunction(
   { id: "memory/create", triggers: [{ event: "memory/create" }] },

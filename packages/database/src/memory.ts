@@ -1,6 +1,7 @@
 import {
   and,
   cosineDistance,
+  desc,
   eq,
   isNotNull,
   isNull,
@@ -10,10 +11,36 @@ import { $memory, schema } from "./schema"
 
 type Database = NodePgDatabase<typeof schema>
 
-export type MemorySearchResult = {
+export type MemoryRecord = {
   content: string
   type: (typeof $memory.$inferSelect)["type"]
+}
+
+export type MemorySearchResult = MemoryRecord & {
   similarity: number
+}
+
+export async function listUserMemories(
+  db: Database,
+  params: { userId: string; limit?: number }
+): Promise<MemoryRecord[]> {
+  const { userId, limit = 8 } = params
+
+  return db
+    .select({
+      content: $memory.content,
+      type: $memory.type,
+    })
+    .from($memory)
+    .where(
+      and(
+        eq($memory.userId, userId),
+        isNull($memory.deletedAt),
+        isNotNull($memory.embedding)
+      )
+    )
+    .orderBy(desc($memory.updatedAt))
+    .limit(limit)
 }
 
 export async function searchMemoriesByEmbedding(

@@ -1,9 +1,6 @@
 import { env } from "@/env"
 import { db } from "@/lib/db"
-import {
-  getRetrievalMinSimilarity,
-  isRecallStyleQuery,
-} from "@/lib/memory/retrieval"
+import { getRetrievalMinSimilarity, isRecallStyleQuery } from "@/lib/memory"
 import { searchMemoriesByEmbedding } from "@workspace/database"
 import { embed, tool } from "ai"
 import z from "zod"

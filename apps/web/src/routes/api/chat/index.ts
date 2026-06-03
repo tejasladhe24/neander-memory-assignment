@@ -22,12 +22,13 @@ import { generateChatTitle } from "@/server/chat"
 import { authMiddleware } from "@/middlewares/auth"
 import { getCapabilities } from "@/lib/ai/models"
 import { retrieveMemoryTool } from "@/lib/ai/tools/memory"
-import { buildChatSystemPrompt } from "@/lib/memory/prompt"
-import { getMessageText, queueMemoriesFromTurn } from "@/lib/memory/queue"
 import {
+  buildChatSystemPrompt,
   buildRetrievalEmbedText,
+  getMessageText,
   getRetrievalMinSimilarity,
-} from "@/lib/memory/retrieval"
+} from "@/lib/memory"
+import { queueMemoriesFromTurn } from "@/lib/inngest"
 
 type RequestBody = {
   id: string
