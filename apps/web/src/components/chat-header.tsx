@@ -4,6 +4,7 @@ import { Separator } from "@workspace/ui/components/separator"
 import { SidebarTrigger } from "@workspace/ui/components/sidebar"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { useAuth } from "./auth-provider"
+import { NavUser } from "./app-sidebar/nav-user"
 
 export const ChatHeader = () => {
   const { chatId } = useParams({ strict: false })
@@ -23,7 +24,7 @@ export const ChatHeader = () => {
   )
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-2 px-4">
       <div className="flex flex-1 items-center gap-2 px-3">
         <SidebarTrigger />
         {chatId && (
@@ -35,6 +36,9 @@ export const ChatHeader = () => {
             <h1 className="text-lg font-semibold">{chat?.title}</h1>
           </>
         )}
+      </div>
+      <div className="flex items-center gap-2">
+        <NavUser />
       </div>
     </header>
   )

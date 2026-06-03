@@ -124,11 +124,11 @@ docker compose up -d
 
 Wait until Postgres is healthy (`docker compose ps`).
 
-| Service | Host port | Purpose |
-|---------|-----------|---------|
-| Postgres (pgvector) | 5432 | Primary data store + vector search |
-| Redis | 6379 | Reserved for future caching |
-| Electric | 3100 | Realtime sync for `chat` / `message` |
+| Service             | Host port | Purpose                              |
+| ------------------- | --------- | ------------------------------------ |
+| Postgres (pgvector) | 5432      | Primary data store + vector search   |
+| Redis               | 6379      | Reserved for future caching          |
+| Electric            | 3100      | Realtime sync for `chat` / `message` |
 
 ### 4. Database migrations
 
@@ -165,7 +165,7 @@ App: [http://localhost:3000](http://localhost:3000)
 **Terminal 2 — Inngest dev server** (needed so memories are extracted and saved after each reply):
 
 ```bash
-npx inngest-cli@latest dev -u http://localhost:3000/api/inngest
+pnpm dlx inngest-cli@latest dev -u http://localhost:3000/api/inngest
 ```
 
 Without Inngest, chat still works but **turn-based memory capture** (`memory/process-turn`) will not run.
@@ -176,6 +176,32 @@ Without Inngest, chat still works but **turn-based memory capture** (`memory/pro
 2. Start a new chat and tell the assistant something durable (e.g. “I prefer PostgreSQL with pgvector”).
 3. Confirm the Inngest dev UI shows `memory/process-turn` runs.
 4. Open a **new** chat and ask “What do you know about me?” — profile + memories should appear in the reply.
+
+## Latency benchmark
+
+Requires [Bun](https://bun.sh), the app running on port 3000, and a benchmark user in `.env`:
+
+```env
+BENCH_EMAIL=bench@example.com
+BENCH_PASSWORD=<password-used-at-signup>
+# optional
+BENCH_ITERATIONS=30
+BENCH_BASE_URL=http://localhost:3000
+```
+
+Create that user once via `/signup`, then from `apps/web`:
+
+```bash
+pnpm bench:latency --mode=memory --memories=1,1000
+pnpm bench:latency --mode=chat --history=0,20,50,100
+```
+
+| Mode     | What it measures                                                                                                                                              |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `memory` | Same retrieval path as `/api/chat`: `listUserMemories` + embed + pgvector search. Compares p50 at ~1 vs ~1000 memories (assignment budget: within **200ms**). |
+| `chat`   | HTTP `POST /api/chat` time to **first response byte** (memory prep + compaction + model TTFB). Varies `history` = prior message count in the chat.            |
+
+See `apps/web/scripts/latency-bench.ts` for flags and implementation details.
 
 ## Project Structure
 
@@ -212,14 +238,14 @@ pnpm format       # Prettier
 
 ## Troubleshooting
 
-| Issue | What to check |
-|-------|----------------|
-| DB connection errors | `POSTGRES_URL` matches `docker compose` credentials; Postgres container healthy |
-| Electric sync empty / errors | `ELECTRIC_URL` and `ELECTRIC_SECRET` match root `.env`; Electric container up |
-| Memories never saved | Inngest dev server running and pointed at `/api/inngest`; `INNGEST_DEV=1` |
-| AI errors | Valid `AI_GATEWAY_API_KEY`; model id in UI matches Gateway-supported models |
-| Auth email not sent | `RESEND_API_KEY` and verified sender domain in Resend |
-| Drizzle type errors after schema change | `pnpm --filter @workspace/database build` then restart TS server |
+| Issue                                   | What to check                                                                   |
+| --------------------------------------- | ------------------------------------------------------------------------------- |
+| DB connection errors                    | `POSTGRES_URL` matches `docker compose` credentials; Postgres container healthy |
+| Electric sync empty / errors            | `ELECTRIC_URL` and `ELECTRIC_SECRET` match root `.env`; Electric container up   |
+| Memories never saved                    | Inngest dev server running and pointed at `/api/inngest`; `INNGEST_DEV=1`       |
+| AI errors                               | Valid `AI_GATEWAY_API_KEY`; model id in UI matches Gateway-supported models     |
+| Auth email not sent                     | `RESEND_API_KEY` and verified sender domain in Resend                           |
+| Drizzle type errors after schema change | `pnpm --filter @workspace/database build` then restart TS server                |
 
 ## Assignment Deliverables
 

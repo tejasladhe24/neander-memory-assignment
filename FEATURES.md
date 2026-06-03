@@ -102,5 +102,5 @@ Most behavior is tunable via `apps/web/.env` without code changes:
 | Memory management UI | No in-app edit/delete for memories (assignment stretch). |
 | Redis caching | Redis runs in Docker but is not wired into the app. |
 | Automated memory tests | Unit/integration tests for capture and retrieval. |
-| Latency benchmark script | 1k-memory p50 retrieval measurement. |
+| Latency benchmark script | Run `pnpm bench:latency` in `apps/web` (see README). |
 | Cross-session demo artifact | Recorded transcript for submission. |

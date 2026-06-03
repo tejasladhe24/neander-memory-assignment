@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bench:latency": "bun --env-file=.env scripts/latency-bench.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.197",
