@@ -1,6 +1,7 @@
-import { inngest, type MemoryCreateEvent } from "@/lib/inngest"
-import { extractMemories } from "@/lib/memory/extract"
+import { inngest } from "@/lib/inngest"
 import type { UIMessage } from "ai"
+
+const MIN_MESSAGE_LENGTH = 3
 
 export function getMessageText(message: UIMessage) {
   return message.parts
@@ -9,7 +10,8 @@ export function getMessageText(message: UIMessage) {
     .trim()
 }
 
-export async function queueMemoriesFromTurn(params: {
+/** Fire-and-forget: extraction + persistence run in Inngest. */
+export function queueMemoriesFromTurn(params: {
   userId: string
   sourceChatId: string
   userMessage: UIMessage
@@ -21,26 +23,24 @@ export async function queueMemoriesFromTurn(params: {
     .filter(Boolean)
     .join("\n")
 
-  const extracted = await extractMemories({
-    userMessage: userText,
-    assistantMessage: assistantText,
-  })
-
-  if (extracted.length === 0) {
-    return { queued: 0 }
+  if (
+    userText.length < MIN_MESSAGE_LENGTH ||
+    assistantText.length < MIN_MESSAGE_LENGTH
+  ) {
+    return
   }
 
-  const events: MemoryCreateEvent[] = extracted.map((memory) => ({
-    name: "memory/create",
-    data: {
-      userId: params.userId,
-      content: memory.content,
-      type: memory.type,
-      sourceChatId: params.sourceChatId,
-    },
-  }))
-
-  await inngest.send(events)
-
-  return { queued: events.length }
+  void inngest
+    .send({
+      name: "memory/process-turn",
+      data: {
+        userId: params.userId,
+        sourceChatId: params.sourceChatId,
+        userMessage: userText,
+        assistantMessage: assistantText,
+      },
+    })
+    .catch((error) => {
+      console.error("Failed to queue memory/process-turn:", error)
+    })
 }

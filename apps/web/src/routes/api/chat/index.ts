@@ -15,7 +15,12 @@ import { generateChatTitle } from "@/server/chat"
 import { authMiddleware } from "@/middlewares/auth"
 import { getCapabilities } from "@/lib/ai/models"
 import { retrieveMemoryTool } from "@/lib/ai/tools/memory"
+import { formatMemoriesForPrompt } from "@/lib/memory/format"
 import { getMessageText, queueMemoriesFromTurn } from "@/lib/memory/queue"
+import {
+  buildRetrievalEmbedText,
+  getRetrievalMinSimilarity,
+} from "@/lib/memory/retrieval"
 
 type RequestBody = {
   id: string
@@ -24,6 +29,8 @@ type RequestBody = {
 }
 
 const CHAT_SYSTEM_PROMPT = `You are a helpful assistant.`
+const MIN_CHARS_FOR_MEMORY_RETRIEVAL = 3
+const EMBEDDING_MODEL = "openai/text-embedding-3-small" as const
 
 export const Route = createFileRoute("/api/chat/")({
   server: {
@@ -33,10 +40,11 @@ export const Route = createFileRoute("/api/chat/")({
         const body = (await req.json()) as RequestBody
 
         const { id, message, model } = body
-        const userId = context.session.userId
+        const userId = context.user.id
         const resolvedModel = model
 
         try {
+          const userText = getMessageText(message)
           const capabilitiesPromise = getCapabilities()
 
           const chat = await db.query.chat.findFirst({
@@ -44,11 +52,7 @@ export const Route = createFileRoute("/api/chat/")({
           })
 
           if (!chat) {
-            const title = await generateChatTitle(
-              message.parts
-                .map((part) => (part.type === "text" ? part.text : ""))
-                .join(" ")
-            )
+            const title = await generateChatTitle(userText)
 
             await db
               .insert(schema.chat)
@@ -76,40 +80,41 @@ export const Route = createFileRoute("/api/chat/")({
             ]).then(([rows]) => rows),
           ])
 
+          const uiMessages = convertToUIMessages(dbMessages)
+          const retrievalEmbedText = buildRetrievalEmbedText(userText, [
+            ...uiMessages,
+            message,
+          ])
+          const minSimilarity = getRetrievalMinSimilarity(userText)
+
+          const queryEmbeddingPromise =
+            retrievalEmbedText.length >= MIN_CHARS_FOR_MEMORY_RETRIEVAL
+              ? embed({
+                  value: retrievalEmbedText,
+                  model: EMBEDDING_MODEL,
+                }).then((result) => result.embedding)
+              : Promise.resolve(null)
+
+          const [queryEmbedding] = await Promise.all([queryEmbeddingPromise])
+
           const isReasoningModel =
             resolvedModel in capabilities
               ? capabilities[resolvedModel].reasoning
               : false
 
-          const uiMessages = convertToUIMessages(dbMessages)
-          const modelMessages = await convertToModelMessages([
-            ...uiMessages,
-            message,
+          const [modelMessages, memories] = await Promise.all([
+            convertToModelMessages([...uiMessages, message]),
+            queryEmbedding
+              ? searchMemoriesByEmbedding(db, {
+                  userId,
+                  embedding: queryEmbedding,
+                  limit: 4,
+                  minSimilarity,
+                })
+              : Promise.resolve([]),
           ])
 
-          // Retrieve memories relevant to the current user message
-          const userText = getMessageText(message)
-
-          const { embedding: queryEmbedding } = await embed({
-            value: userText,
-            model: "openai/text-embedding-3-small",
-          })
-
-          const memories = await searchMemoriesByEmbedding(db, {
-            userId,
-            embedding: queryEmbedding,
-            limit: 4,
-          })
-
-          const memoriesText =
-            memories.length > 0
-              ? memories
-                  .map(
-                    (m, index) =>
-                      `${index + 1}. [${m.type}] ${m.content} (similarity: ${m.similarity.toFixed(2)})`
-                  )
-                  .join("\n")
-              : "No relevant memories yet."
+          const memoriesText = formatMemoriesForPrompt(memories)
 
           const SYSTEM_PROMPT = `${CHAT_SYSTEM_PROMPT}
 The following are remembered facts about this user. Use them when relevant. Do not mention the memory system unless asked.
@@ -163,19 +168,13 @@ ${memoriesText}`
                 (m) => m.role === "assistant"
               )
 
-              console.log("assistantMessages", assistantMessages)
-
               if (assistantMessages.length > 0) {
-                try {
-                  await queueMemoriesFromTurn({
-                    userId,
-                    sourceChatId: id,
-                    userMessage: message,
-                    assistantMessages,
-                  })
-                } catch (error) {
-                  console.error("Failed to queue memory creation:", error)
-                }
+                queueMemoriesFromTurn({
+                  userId,
+                  sourceChatId: id,
+                  userMessage: message,
+                  assistantMessages,
+                })
               }
             },
             onError: (error) => {

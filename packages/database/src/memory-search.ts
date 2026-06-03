@@ -18,9 +18,14 @@ export type MemorySearchResult = {
 
 export async function searchMemoriesByEmbedding(
   db: Database,
-  params: { userId: string; embedding: number[]; limit?: number }
+  params: {
+    userId: string
+    embedding: number[]
+    limit?: number
+    minSimilarity?: number
+  }
 ): Promise<MemorySearchResult[]> {
-  const { userId, embedding, limit = 4 } = params
+  const { userId, embedding, limit = 4, minSimilarity = 0.5 } = params
   const distance = cosineDistance($memory.embedding, embedding)
 
   const rows = await db
@@ -38,11 +43,14 @@ export async function searchMemoriesByEmbedding(
       )
     )
     .orderBy(distance)
-    .limit(limit)
+    .limit(limit * 2)
 
-  return rows.map((row) => ({
-    content: row.content,
-    type: row.type,
-    similarity: 1 - Number(row.distance),
-  }))
+  return rows
+    .map((row) => ({
+      content: row.content,
+      type: row.type,
+      similarity: 1 - Number(row.distance),
+    }))
+    .filter((row) => row.similarity >= minSimilarity)
+    .slice(0, limit)
 }

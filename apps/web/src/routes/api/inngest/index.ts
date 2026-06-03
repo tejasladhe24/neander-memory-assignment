@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { serve } from "inngest/edge"
-import { createMemory, inngest } from "@/lib/inngest"
+import { createMemory, inngest, processTurnMemory } from "@/lib/inngest"
 
 const handler = serve({
   client: inngest,
-  functions: [createMemory],
+  functions: [createMemory, processTurnMemory],
 })
 
 export const Route = createFileRoute("/api/inngest/")({
